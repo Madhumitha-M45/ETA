@@ -61,13 +61,7 @@ public class ETAService {
                     Document stopDoc = rawRouteStops.get(i);
                     String name = stopDoc.getString("stopName");
 
-                    double distVal = 0.0;
-                    if (stopDoc.get("distanceFromPrevious") != null) {
-                        distVal = ((Number) stopDoc.get("distanceFromPrevious")).doubleValue();
-                    } else if (stopDoc.get("distance") != null) {
-                        distVal = ((Number) stopDoc.get("distance")).doubleValue();
-                    }
-
+                    double distVal = extractDistanceValue(stopDoc);
                     cumulativeDist += distVal;
                     stopCumulativeDistances.add(cumulativeDist);
 
@@ -93,8 +87,6 @@ public class ETAService {
                 response.setBoardingStop(boardingStop);
                 response.setDestinationStop(destinationStop);
                 response.setStartingFrom(schedule.getString("startLocation"));
-                
-                // Format railway time "15:00" to "03:00 PM"
                 response.setDepartureTime(ETACalculator.format12HourTime(schedule.getString("departureTime")));
 
                 double totalDistance = schedule.get("totalDistance") != null 
@@ -123,14 +115,13 @@ public class ETAService {
                     response.setNextStop(nextStop);
                     response.setSpeed(speed);
                     response.setLastUpdated(timestamp != null ? timestamp : "2026-07-29 10:00:00");
-                    response.setDistanceToNextStop(Math.round(distanceToNextStop * 10.0) / 10.0);
+                    response.setDistanceToNextStop(ETACalculator.roundDistance(distanceToNextStop));
 
                     double currentBusDistance = ETACalculator.calculateCurrentBusDistance(journeyProgress, totalDistance);
 
                     double remainingToBoarding = ETACalculator.calculateRemainingDistance(sourceDistance, currentBusDistance);
                     double remainingToDestination = ETACalculator.calculateRemainingDistance(destinationDistance, currentBusDistance);
 
-                    // Ensure upcoming stops use real telemetry distance
                     if (remainingToBoarding == 0.0 && nextStop != null && nextStop.equalsIgnoreCase(boardingStop)) {
                         remainingToBoarding = distanceToNextStop;
                     }
@@ -141,8 +132,8 @@ public class ETAService {
                     long etaBoardingMins = ETACalculator.calculateETAMinutes(remainingToBoarding, speed);
                     long etaDestMins = ETACalculator.calculateETAMinutes(remainingToDestination, speed);
 
-                    response.setRemainingDistanceToBoardingStop(Math.round(remainingToBoarding * 10.0) / 10.0);
-                    response.setRemainingDistanceToDestination(Math.round(remainingToDestination * 10.0) / 10.0);
+                    response.setRemainingDistanceToBoardingStop(ETACalculator.roundDistance(remainingToBoarding));
+                    response.setRemainingDistanceToDestination(ETACalculator.roundDistance(remainingToDestination));
 
                     response.setEtaToBoardingStop(ETACalculator.formatETAString(etaBoardingMins));
                     response.setBusArrivalTimeAtBoardingStop(ETACalculator.calculateArrivalTime(timestamp, etaBoardingMins));
@@ -155,7 +146,6 @@ public class ETAService {
                     }
                     response.setStatus(status);
 
-                    // Locate index of current stop in schedule
                     int currentStopIndex = -1;
                     for (int i = 0; i < rawRouteStops.size(); i++) {
                         String name = rawRouteStops.get(i).getString("stopName");
@@ -165,21 +155,22 @@ public class ETAService {
                         }
                     }
 
-                    // Build routeStops list
                     List<RouteStopDTO> formattedStops = new ArrayList<>();
                     for (int i = 0; i < rawRouteStops.size(); i++) {
                         Document stopDoc = rawRouteStops.get(i);
                         String stopName = stopDoc.getString("stopName");
                         double stopAbsDist = stopCumulativeDistances.get(i);
 
+                        // Debug print to inspect MongoDB route values in output log
+                        System.out.println("[DEBUG] " + stopName + " -> stopAbsDist=" + stopAbsDist + " | currentBusDist=" + currentBusDistance);
+
                         double remDist = ETACalculator.calculateRemainingDistance(stopAbsDist, currentBusDistance);
 
-                        // If distance evaluates to 0.0 for next stop, fallback to distanceToNextStop
                         if (remDist == 0.0 && nextStop != null && nextStop.equalsIgnoreCase(stopName)) {
                             remDist = distanceToNextStop;
                         }
 
-                        remDist = Math.round(remDist * 10.0) / 10.0;
+                        remDist = ETACalculator.roundDistance(remDist);
 
                         String stopEtaStr;
                         if (currentStop != null && currentStop.equalsIgnoreCase(stopName)) {
@@ -218,5 +209,21 @@ public class ETAService {
         }
 
         return responsesList;
+    }
+
+    /**
+     * Helper method to safely extract distance value across various document formats
+     */
+    private double extractDistanceValue(Document stopDoc) {
+        if (stopDoc.get("distanceFromPrevious") != null) {
+            return ((Number) stopDoc.get("distanceFromPrevious")).doubleValue();
+        }
+        if (stopDoc.get("distance") != null) {
+            return ((Number) stopDoc.get("distance")).doubleValue();
+        }
+        if (stopDoc.get("distanceFromStart") != null) {
+            return ((Number) stopDoc.get("distanceFromStart")).doubleValue();
+        }
+        return 0.0;
     }
 }

@@ -7,10 +7,20 @@ import java.util.Locale;
 
 public class ETACalculator {
 
-    private static final double DEFAULT_SPEED = 25.0; // Fallback speed in km/h
+    private static final double DEFAULT_SPEED = 30.0; // Standard fallback speed in km/h
     private static final DateTimeFormatter AM_PM_FORMATTER = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH);
 
+    /**
+     * Rounds distance to 1 decimal place.
+     */
+    public static double roundDistance(double distance) {
+        return Math.round(distance * 10.0) / 10.0;
+    }
+
     public static double calculateCurrentBusDistance(double journeyProgress, double totalDistance) {
+        if (journeyProgress <= 0 || totalDistance <= 0) {
+            return 0.0;
+        }
         return (journeyProgress / 100.0) * totalDistance;
     }
 
@@ -19,16 +29,24 @@ public class ETACalculator {
     }
 
     public static long calculateETAMinutes(double distanceKm, double speedKmPerHour) {
-        if (distanceKm <= 0) return 1; // Minimum 1 min for non-zero remaining distance
+        if (distanceKm <= 0) {
+            return 0; // At target stop
+        }
+        
         double effectiveSpeed = (speedKmPerHour <= 0) ? DEFAULT_SPEED : speedKmPerHour;
-        return Math.max(1, Math.round((distanceKm / effectiveSpeed) * 60.0));
+        long minutes = Math.round((distanceKm / effectiveSpeed) * 60.0);
+        
+        // Return at least 1 minute if distance is greater than 0
+        return Math.max(1, minutes);
     }
 
     public static String formatETAString(long minutes) {
-        return Math.max(1, minutes) + " mins";
+        if (minutes <= 0) {
+            return "Arrived";
+        }
+        return minutes + " mins";
     }
 
-    // Converts "15:00" or "15:00:00" to "03:00 PM"
     public static String format12HourTime(String timeStr) {
         if (timeStr == null || timeStr.trim().isEmpty()) {
             return "12:00 PM";
@@ -44,11 +62,11 @@ public class ETACalculator {
             LocalTime time = LocalTime.parse(cleanTime);
             return time.format(AM_PM_FORMATTER);
         } catch (Exception e) {
-            return timeStr; // Fallback to raw string if parsing fails
+            e.printStackTrace();
+            return timeStr;
         }
     }
 
-    // Calculates AM/PM clock time from timestamp + ETA minutes
     public static String calculateArrivalTime(String lastUpdatedTimestamp, long etaMinutes) {
         if (lastUpdatedTimestamp == null || lastUpdatedTimestamp.trim().isEmpty()) {
             return "12:00 PM";
@@ -71,6 +89,7 @@ public class ETACalculator {
             LocalTime arrivalTime = baseTime.plusMinutes(Math.max(0, etaMinutes));
             return arrivalTime.format(AM_PM_FORMATTER);
         } catch (Exception e) {
+            e.printStackTrace();
             return "12:00 PM";
         }
     }
