@@ -3,16 +3,23 @@ package service;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.util.Locale;
 
 public class ETACalculator {
 
-    private static final double DEFAULT_SPEED = 30.0; // Standard fallback speed in km/h
+    private static final double DEFAULT_SPEED = 30.0; // Fallback speed in km/h
     private static final DateTimeFormatter AM_PM_FORMATTER = DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH);
 
-    /**
-     * Rounds distance to 1 decimal place.
-     */
+    // Flexible timestamp parser handling ISO-8601, space-separated, and varying digit lengths
+    private static final DateTimeFormatter FLEXIBLE_TIMESTAMP_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-M-d")
+            .optionalStart().appendLiteral('T').optionalEnd()
+            .optionalStart().appendLiteral(' ').optionalEnd()
+            .appendPattern("H:m")
+            .optionalStart().appendPattern(":s").optionalEnd()
+            .toFormatter(Locale.ENGLISH);
+
     public static double roundDistance(double distance) {
         return Math.round(distance * 10.0) / 10.0;
     }
@@ -30,21 +37,37 @@ public class ETACalculator {
 
     public static long calculateETAMinutes(double distanceKm, double speedKmPerHour) {
         if (distanceKm <= 0) {
-            return 0; // At target stop
+            return 0; 
         }
-        
         double effectiveSpeed = (speedKmPerHour <= 0) ? DEFAULT_SPEED : speedKmPerHour;
         long minutes = Math.round((distanceKm / effectiveSpeed) * 60.0);
-        
-        // Return at least 1 minute if distance is greater than 0
         return Math.max(1, minutes);
     }
 
+    /**
+     * Formats minutes into standard readable duration formats:
+     * - 0 -> "Arrived"
+     * - 43 -> "43 mins"
+     * - 60 -> "1 hr"
+     * - 100 -> "1 hr 40 mins"
+     */
     public static String formatETAString(long minutes) {
         if (minutes <= 0) {
             return "Arrived";
         }
-        return minutes + " mins";
+
+        if (minutes < 60) {
+            return minutes + " mins";
+        }
+
+        long hours = minutes / 60;
+        long mins = minutes % 60;
+
+        if (mins == 0) {
+            return hours + " hr";
+        }
+
+        return hours + " hr " + mins + " mins";
     }
 
     public static String format12HourTime(String timeStr) {
@@ -62,7 +85,6 @@ public class ETACalculator {
             LocalTime time = LocalTime.parse(cleanTime);
             return time.format(AM_PM_FORMATTER);
         } catch (Exception e) {
-            e.printStackTrace();
             return timeStr;
         }
     }
@@ -75,9 +97,8 @@ public class ETACalculator {
             String cleanTimestamp = lastUpdatedTimestamp.trim();
             LocalTime baseTime;
 
-            if (cleanTimestamp.contains(" ")) {
-                DateTimeFormatter fullFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                LocalDateTime dateTime = LocalDateTime.parse(cleanTimestamp, fullFormatter);
+            if (cleanTimestamp.contains("-")) {
+                LocalDateTime dateTime = LocalDateTime.parse(cleanTimestamp, FLEXIBLE_TIMESTAMP_FORMATTER);
                 baseTime = dateTime.toLocalTime();
             } else {
                 if (cleanTimestamp.contains(".")) {
@@ -89,7 +110,6 @@ public class ETACalculator {
             LocalTime arrivalTime = baseTime.plusMinutes(Math.max(0, etaMinutes));
             return arrivalTime.format(AM_PM_FORMATTER);
         } catch (Exception e) {
-            e.printStackTrace();
             return "12:00 PM";
         }
     }
